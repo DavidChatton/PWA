@@ -147,6 +147,34 @@ const app = {
     }
   },
 
+  // Permet de récuperer les notes dans le local storage qui contient isNew
+  getUnsyncedNotes() {
+    const savedNotes = app.getFromLocalStorage("savedNotes");
+    return savedNotes.filter(note => note.isNew);
+  },
+
+  // Cette méthode va nous permettre de synchro les notes dans le local storage et les intégrer une fois en ligne
+  async synchronizeNotes() {
+    const notesToSync = app.getUnsyncedNotes();
+  
+    for (const note of notesToSync) {
+      try {
+        const createdNote = await NoteKeeper.create(note.note);
+        if (createdNote) {
+          note.isNew = false;
+          note.id = createdNote.id;
+        }
+      } catch (error) {
+        console.trace("Erreur lors de la synchronisation:", error);
+        app.logOperation("Erreur lors de la synchronisation des notes.", false);
+      }
+    }
+  
+    app.setInLocalStorage("savedNotes", app.getFromLocalStorage("savedNotes"));
+    app.logOperation("Synchronisation terminée.");
+  },
+  
+
   /**
    * Handles the update of a note.
    *
@@ -157,6 +185,7 @@ const app = {
    * @param {Note} note - The note object to be updated.
    * @returns {Promise<void>} - A promise that resolves when the update operation is complete.
    */
+  // mise a jour d'une note
   async handleUpdateNote(note) {
     try {
       const savedNotes = app.getFromLocalStorage("savedNotes");
@@ -195,19 +224,32 @@ const app = {
   // suppression des notes
   async handleDeleteNote(noteId, noteElement) {
     try {
-      const notesContainer = document.getElementById("notes-container");
       const savedNotes = app.getFromLocalStorage("savedNotes");
       let notes = savedNotes;
+      const notesToDelete = app.getFromLocalStorage("notesToDelete") || [];
 
       if (!app.isOnline()) {
-        throw new Error("Impossible de supprimer la note hors ligne.");
+        // Ajouter la note à la liste des suppressions en attente
+        notesToDelete.push(noteId);
+        app.setInLocalStorage("notesToDelete", notesToDelete);
+
+        // Supprimer la note localement
+        notes = savedNotes.filter((n) => n.id !== noteId);
+        app.setInLocalStorage("savedNotes", notes);
+
+        if (noteElement) {
+          noteElement.remove();
+        }
+
+        throw new Error("Impossible de supprimer la note hors ligne. La suppression sera synchronisée plus tard.");
       }
 
+      // Supprimer la note définitivement si en ligne
       notes = savedNotes.filter((n) => n.id !== noteId);
       app.setInLocalStorage("savedNotes", notes);
 
-      if (notesContainer && noteElement) {
-        notesContainer.removeChild(noteElement);
+      if (noteElement) {
+        noteElement.remove();
       }
 
       app.logOperation("Suppression d'une note");
